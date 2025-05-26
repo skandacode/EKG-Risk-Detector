@@ -51,4 +51,4 @@ The script will:
 
 ## License
 
-This project is for educational and research purposes.
+This project is for educational purposes.
