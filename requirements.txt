@@ -3,3 +3,5 @@ matplotlib
 wfdb
 neurokit2
 PyWavelets
+pandas
+plotly

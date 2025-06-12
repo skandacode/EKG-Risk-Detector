@@ -1,0 +1,8 @@
+"Date recorded", 2010-12-21
+"Time recorded", 17:59:52
+
+"Channels information:"
+"#1 ECG,EKG,uV,200 Hz"
+"Filter1: LowFilter(IIR,High Pass,Order = 2,CutFreq = 0.10Hz)"
+"Filter2: HighFilter(IIR,Low Pass,Order = 4,CutFreq = 70 Hz)"
+"Filter3: 60Hz(IIR,Band Reject,Order = 5,CutFreq1 = 58Hz,CutFreq2 = 62 Hz)"
