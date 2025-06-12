@@ -18,7 +18,7 @@ df = pandas.read_csv(
     skipinitialspace=True
 )
 
-# Ignore timestamps, generate time column based on sampling rate
+# Generate time column based on sampling rate
 num_samples = len(df)
 df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
 df.set_index('SECONDS_SINCE_START', inplace=True)

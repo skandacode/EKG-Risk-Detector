@@ -39,6 +39,19 @@ python plot_actual_data.py
 **CSV Format:**  
 Your `data.csv` should have at least the columns `TIME` (timestamp) and `ECG` (signal value).
 
+Example:
+```csv
+TIME,ECG
+18:00:05.699,661.022705
+18:00:05.704,735.636780
+18:00:05.709,752.442139
+18:00:05.714,592.245361
+18:00:05.719,637.751221
+18:00:05.724,714.962036
+18:00:05.729,579.380798
+...
+```
+
 ## Customization
 
 - To analyze a different record, change the `record_name` and `database` variables in `test.py`.
