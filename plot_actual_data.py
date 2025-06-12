@@ -2,12 +2,15 @@ import pandas
 import numpy as np
 import matplotlib.pyplot as plt
 
-# Read metadata to get the date
-with open('metadata.txt', 'r') as meta_file:
-    for line in meta_file:
-        if line.startswith('"Date recorded"'):
-            date_str = line.split(',')[1].strip().strip('"')
-            break
+df_preview = pandas.read_csv(
+    'data.csv',
+    quotechar='"',
+    skipinitialspace=True,
+    nrows=2
+)
+time0 = pandas.to_datetime(df_preview['TIME'].iloc[0])
+time1 = pandas.to_datetime(df_preview['TIME'].iloc[1])
+sampling_rate = 1 / (time1 - time0).total_seconds()
 
 df = pandas.read_csv(
     'data.csv',
@@ -15,20 +18,14 @@ df = pandas.read_csv(
     skipinitialspace=True
 )
 
-df['TIME'] = pandas.to_datetime(
-    date_str + ' ' + df['TIME'],
-    format='%Y-%m-%d %H:%M:%S.%f'
-)
-df.set_index('TIME', inplace=True)
+# Ignore timestamps, generate time column based on sampling rate
+num_samples = len(df)
+df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
+df.set_index('SECONDS_SINCE_START', inplace=True)
 
-print(df.head(100))
+print(df)
 
-df=df.head(10000)
-
-
-#print sampling rate
-first_time_diff = (df.index[1] - df.index[0]).total_seconds()
-sampling_rate = 1 / first_time_diff
+# Print sampling rate
 print(f"sampling rate: {sampling_rate} hz")
 
 first_chunk = df
@@ -36,46 +33,42 @@ first_chunk = df
 # Invert ECG
 first_chunk['ECG'] = -first_chunk['ECG']
 
-# Plot ECG data with 0 line
-plt.figure(figsize=(15, 6))
-plt.plot(first_chunk.index, first_chunk['ECG'], 'b-', linewidth=0.8, label='ECG')
-plt.axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.7, label='0 Voltage')
-plt.xlabel('Time')
-plt.ylabel('Voltage')
-plt.title('ECG Data')
+# R peak detection
+threshold = 650
+min_distance_ms = 250
+min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
+
+r_peak_indices = []
+prev_peak = -min_distance_samples
+values = first_chunk['ECG'].values
+for i in range(1, len(values) - 1):
+    if values[i] > threshold and values[i] > values[i-1] and values[i] > values[i+1]:
+        if i - prev_peak >= min_distance_samples:
+            r_peak_indices.append(i)
+            prev_peak = i
+
+r_peak_times = first_chunk.index[r_peak_indices]
+
+rr_intervals = np.diff(r_peak_times)
+rr_interval_times = r_peak_times[1:]
+
+# Plotting
+
+plt.figure()
+plt.plot(first_chunk.index, first_chunk['ECG'], label='ECG')
+plt.scatter(r_peak_times, first_chunk['ECG'].iloc[r_peak_indices],
+            color='red', label='R peaks')
+plt.axhline(0, color='black', linestyle='--', linewidth=1, label='Zero')
+plt.axhline(threshold, color='green', linestyle='--', linewidth=1, label='R threshold')
+plt.xlabel('Seconds since start')
+plt.ylabel('Amplitude')
+plt.title('ECG')
 plt.legend()
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
 
+plt.figure()
+plt.plot(rr_interval_times, rr_intervals, label='RR interval')
+plt.xlabel('Seconds since start')
+plt.ylabel('Interval (s)')
+plt.title('RR Intervals over Time')
 
-derivative = np.diff(first_chunk['ECG']) / np.diff(first_chunk.index.astype(np.int64)) * 1e9
-
-derivative_time = first_chunk.index[:-1]
-
-plt.figure(figsize=(15, 6))
-plt.plot(derivative_time, derivative, 'g-', linewidth=0.8, label='First Derivative')
-plt.axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.7, label='0 Line')
-plt.xlabel('Time')
-plt.ylabel('Rate of Change (V/s)')
-plt.title('First Derivative of ECG Data')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
-plt.show()
-
-
-second_derivative = np.diff(derivative) / np.diff(derivative_time.astype(np.int64)) * 1e9
-
-second_derivative_time = derivative_time[:-1]
-
-plt.figure(figsize=(15, 6))
-plt.plot(second_derivative_time, second_derivative, 'r-', linewidth=0.8, label='Second Derivative')
-plt.axhline(0, color='red', linestyle='--', linewidth=1, alpha=0.7, label='0 Line')
-plt.xlabel('Time')
-plt.ylabel('Rate of Change (V/s²)')
-plt.title('Second Derivative of ECG Data')
-plt.legend()
-plt.grid(True, alpha=0.3)
-plt.tight_layout()
 plt.show()

@@ -1,7 +1,7 @@
-numpy
 matplotlib
-wfdb
 neurokit2
-PyWavelets
+numpy
 pandas
 plotly
+PyWavelets
+wfdb
