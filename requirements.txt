@@ -1,7 +1,3 @@
 matplotlib
-neurokit2
 numpy
 pandas
-plotly
-PyWavelets
-wfdb
