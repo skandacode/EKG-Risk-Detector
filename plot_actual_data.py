@@ -18,48 +18,69 @@ df = pandas.read_csv(
     skipinitialspace=True
 )
 
-# Generate time column based on sampling rate
 num_samples = len(df)
 df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
 df.set_index('SECONDS_SINCE_START', inplace=True)
 
 print(df)
 
-# Print sampling rate
 print(f"sampling rate: {sampling_rate} hz")
 
-first_chunk = df
 
 # Invert ECG
-first_chunk['ECG'] = -first_chunk['ECG']
+df['ECG'] = -df['ECG']
 
-# R peak detection
-threshold = 650
+window_size = 2000
+df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
+
+threshold_offset = 600
+df['dynamic_threshold'] = df['moving_avg'] + threshold_offset
+
 min_distance_ms = 250
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
 
 r_peak_indices = []
 prev_peak = -min_distance_samples
-values = first_chunk['ECG'].values
+values = df['ECG'].values
+thresholds = df['dynamic_threshold'].values
+
 for i in range(1, len(values) - 1):
-    if values[i] > threshold and values[i] > values[i-1] and values[i] > values[i+1]:
+    if (not np.isnan(thresholds[i]) and 
+        values[i] > thresholds[i] and 
+        values[i] > values[i-1] and 
+        values[i] > values[i+1]):
         if i - prev_peak >= min_distance_samples:
             r_peak_indices.append(i)
             prev_peak = i
 
-r_peak_times = first_chunk.index[r_peak_indices]
+# Add R peaks at the beginning and end of the signal
+if r_peak_indices:
+    # Add peak at beginning if not already there
+    if r_peak_indices[0] > min_distance_samples:
+        r_peak_indices.insert(0, 0)
+    
+    # Add peak at end if not already there
+    if len(values) - 1 - r_peak_indices[-1] > min_distance_samples:
+        r_peak_indices.append(len(values) - 1)
+
+r_peak_times = df.index[r_peak_indices]
 
 rr_intervals = np.diff(r_peak_times)
 rr_interval_times = r_peak_times[1:]
 
-# Plotting
+
+downsample_factor = 10
+downsample_indices = np.arange(0, len(df), downsample_factor)
 
 plt.figure()
-plt.plot(first_chunk.index, first_chunk['ECG'], label='ECG')
-plt.scatter(r_peak_times, first_chunk['ECG'].iloc[r_peak_indices],
+plt.plot(df.index, df['ECG'], label='ECG')
+plt.plot(df.index[downsample_indices], df['moving_avg'].iloc[downsample_indices], 
+         label='Moving Average (10s)', color='orange')
+plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
+         label='Dynamic Threshold', color='green', linestyle='--')
+plt.scatter(r_peak_times, df['ECG'].iloc[r_peak_indices],
             color='red', label='R peaks')
 plt.axhline(0, color='black', linestyle='--', linewidth=1, label='Zero')
-plt.axhline(threshold, color='green', linestyle='--', linewidth=1, label='R threshold')
 plt.xlabel('Seconds since start')
 plt.ylabel('Amplitude')
 plt.title('ECG')
