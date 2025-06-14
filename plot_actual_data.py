@@ -33,10 +33,10 @@ df['ECG'] = -df['ECG']
 window_size = 2000
 df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
 
-threshold_offset = 600
+threshold_offset = 550
 df['dynamic_threshold'] = df['moving_avg'] + threshold_offset
 
-min_distance_ms = 250
+min_distance_ms = 100
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
 
 r_peak_indices = []
