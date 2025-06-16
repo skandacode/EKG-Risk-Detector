@@ -31,10 +31,11 @@ print(f"sampling rate: {sampling_rate} hz")
 df['ECG'] = -df['ECG']
 
 window_size = 2000
-df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
 
-threshold_offset = 550
-df['dynamic_threshold'] = df['moving_avg'] + threshold_offset
+df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
+df['standard dev'] = df['ECG'].rolling(window=window_size, center=True).std()
+
+df['dynamic_threshold'] = df['moving_avg'] + 1.5 * df['standard dev']
 
 min_distance_ms = 100
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
@@ -78,8 +79,12 @@ plt.plot(df.index[downsample_indices], df['moving_avg'].iloc[downsample_indices]
          label='Moving Average (10s)', color='orange')
 plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
          label='Dynamic Threshold', color='green', linestyle='--')
+plt.plot(df.index[downsample_indices], df['standard dev'].iloc[downsample_indices], 
+         label='Standard Deviation', color='blue', linestyle='--')
+
 plt.scatter(r_peak_times, df['ECG'].iloc[r_peak_indices],
             color='red', label='R peaks')
+
 plt.axhline(0, color='black', linestyle='--', linewidth=1, label='Zero')
 plt.xlabel('Seconds since start')
 plt.ylabel('Amplitude')
@@ -91,5 +96,12 @@ plt.plot(rr_interval_times, rr_intervals, label='RR interval')
 plt.xlabel('Seconds since start')
 plt.ylabel('Interval (s)')
 plt.title('RR Intervals over Time')
+
+plt.figure()
+plt.plot(rr_interval_times, rr_intervals, label='RR interval')
+plt.yscale('log')
+plt.xlabel('Seconds since start')
+plt.ylabel('Interval (s) - Log Scale')
+plt.title('RR Intervals over Time (Log Scale)')
 
 plt.show()
