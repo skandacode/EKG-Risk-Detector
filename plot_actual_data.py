@@ -2,6 +2,18 @@ import pandas
 import numpy as np
 import matplotlib.pyplot as plt
 
+# Constants
+WINDOW_SIZE = 2000
+MIN_DISTANCE_MS = 100
+HRV_WINDOW_SIZE = 13
+HRV_THRESHOLD = 0.13
+HRV_LOW_THRESHOLD = 1e-5
+HRV_LOW_COUNT_THRESHOLD = 5
+HOUR_SECONDS = 3600
+NORMAL_HR_MIN = 60
+NORMAL_HR_MAX = 100
+DOWNSAMPLE_FACTOR = 10
+
 df_preview = pandas.read_csv(
     'data.csv',
     quotechar='"',
@@ -30,14 +42,14 @@ print(f"sampling rate: {sampling_rate} hz")
 # Invert ECG
 df['ECG'] = -df['ECG']
 
-window_size = 2000
+window_size = WINDOW_SIZE
 
 df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
 df['standard dev'] = df['ECG'].rolling(window=window_size, center=True).std()
 
 df['dynamic_threshold'] = df['moving_avg'] + 1.5 * df['standard dev']
 
-min_distance_ms = 100
+min_distance_ms = MIN_DISTANCE_MS
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
 
 r_peak_indices = []
@@ -70,7 +82,46 @@ rr_intervals = np.diff(r_peak_times)
 rr_interval_times = r_peak_times[1:]
 
 
-downsample_factor = 10
+# Calculate HRV using rolling standard deviation
+hrv_window_size = HRV_WINDOW_SIZE
+rr_series = pandas.Series(rr_intervals, index=rr_interval_times)
+hrv = rr_series.rolling(window=hrv_window_size, center=True).std()
+
+# Detect hours with excessive low HRV events
+def find_low_hrv_hours(hrv_series, low_threshold, count_threshold, hour_duration):
+    low_hrv_hours = []
+    if len(hrv_series) == 0:
+        return low_hrv_hours
+    
+    start_time = hrv_series.index[0]
+    end_time = hrv_series.index[-1]
+    
+    current_hour_start = start_time
+    while current_hour_start + hour_duration <= end_time:
+        current_hour_end = current_hour_start + hour_duration
+        
+        # Get HRV values in this hour window
+        hour_mask = (hrv_series.index >= current_hour_start) & (hrv_series.index < current_hour_end)
+        hour_hrv = hrv_series[hour_mask]
+        
+        # Count low HRV events in this hour
+        low_hrv_count = (hour_hrv < low_threshold).sum()
+        
+        if low_hrv_count > count_threshold:
+            low_hrv_hours.append((current_hour_start, current_hour_end))
+        
+        # Move to next hour (overlapping windows for better detection)
+        current_hour_start += hour_duration / 4  # 15-minute steps
+    
+    return low_hrv_hours
+
+low_hrv_hours = find_low_hrv_hours(hrv, HRV_LOW_THRESHOLD, HRV_LOW_COUNT_THRESHOLD, HOUR_SECONDS)
+
+#normally the variability drops to below 10^-5 1 time in 1000 seconds but when bad stuff is about to happen it can drop to 100 seconds
+#when bad stuff is happeneing the variability goes to 1 second to 10 sec
+#threshold for bad stuff currently happening should be around 0.4 seconds. if the hrv is greater than 0.4 seconds then it is bad currently
+
+downsample_factor = DOWNSAMPLE_FACTOR
 downsample_indices = np.arange(0, len(df), downsample_factor)
 
 plt.figure()
@@ -93,15 +144,86 @@ plt.legend()
 
 plt.figure()
 plt.plot(rr_interval_times, rr_intervals, label='RR interval')
+
+# Add HRV to linear scale plot
+ax1 = plt.gca()
+ax2 = ax1.twinx()
+ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label='HRV (30)', alpha=0.8)
+ax2.set_ylabel('HRV (s)', color='purple')
+ax2.tick_params(axis='y', labelcolor='purple')
+
+# Combine legends
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+
 plt.xlabel('Seconds since start')
 plt.ylabel('Interval (s)')
-plt.title('RR Intervals over Time')
+plt.title('RR Intervals and Heart Rate Variability over Time')
 
 plt.figure()
 plt.plot(rr_interval_times, rr_intervals, label='RR interval')
 plt.yscale('log')
+
+normal_hr_min = NORMAL_HR_MIN
+normal_hr_max = NORMAL_HR_MAX
+rr_max_normal = 60 / normal_hr_min
+rr_min_normal = 60 / normal_hr_max
+
+plt.axhline(rr_max_normal, color='green', linestyle='--', alpha=0.7, label='60 bpm (1.0s)')
+plt.axhline(rr_min_normal, color='red', linestyle='--', alpha=0.7, label='100 bpm (0.6s)')
+
+# Create secondary y-axis for HRV
+ax1 = plt.gca()
+ax2 = ax1.twinx()
+ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label='HRV (30) Log Scale', alpha=0.8)
+ax2.set_yscale('log')
+ax2.set_ylabel('HRV (s) - Log Scale', color='purple')
+ax2.tick_params(axis='y', labelcolor='purple')
+
+# Add HRV threshold line and highlight regions above 0.4s
+hrv_threshold = HRV_THRESHOLD
+ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.4s)')
+
+# Highlight hours with excessive low HRV events in blue FIRST
+for start_time, end_time in low_hrv_hours:
+    ax1.axvspan(start_time, end_time, alpha=0.2, color='blue', 
+                label=f'Low HRV Hours (>{HRV_LOW_COUNT_THRESHOLD} drops <1e-5/hr)' if start_time == low_hrv_hours[0][0] else "")
+
+# Highlight regions where HRV > 0.4s in red SECOND (takes precedence)
+high_hrv_mask = hrv > hrv_threshold
+if high_hrv_mask.any():
+    # Get the y-limits for the background highlighting
+    y_min, y_max = ax1.get_ylim()
+    
+    # Find continuous regions where HRV > threshold
+    high_hrv_regions = []
+    in_region = False
+    start_idx = None
+    
+    for i, is_high in enumerate(high_hrv_mask):
+        if is_high and not in_region:
+            start_idx = i
+            in_region = True
+        elif not is_high and in_region:
+            high_hrv_regions.append((hrv.index[start_idx], hrv.index[i-1]))
+            in_region = False
+    
+    # Handle case where last region extends to end
+    if in_region:
+        high_hrv_regions.append((hrv.index[start_idx], hrv.index[-1]))
+    
+    # Highlight each region
+    for start_time, end_time in high_hrv_regions:
+        ax1.axvspan(start_time, end_time, alpha=0.3, color='red', label='High HRV (>0.4s)' if start_time == high_hrv_regions[0][0] else "")
+
+# Combine legends from both axes
+lines1, labels1 = ax1.get_legend_handles_labels()
+lines2, labels2 = ax2.get_legend_handles_labels()
+ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
+
 plt.xlabel('Seconds since start')
 plt.ylabel('Interval (s) - Log Scale')
-plt.title('RR Intervals over Time (Log Scale)')
+plt.title('RR Intervals and Heart Rate Variability over Time (Log Scale)')
 
 plt.show()
