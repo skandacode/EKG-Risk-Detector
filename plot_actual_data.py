@@ -44,10 +44,10 @@ df['ECG'] = -df['ECG']
 
 window_size = WINDOW_SIZE
 
-df['moving_avg'] = df['ECG'].rolling(window=window_size, center=True).mean()
+df['moving_median'] = df['ECG'].rolling(window=window_size, center=True).median()
 df['standard dev'] = df['ECG'].rolling(window=window_size, center=True).std()
 
-df['dynamic_threshold'] = df['moving_avg'] + 1.5 * df['standard dev']
+df['dynamic_threshold'] = df['moving_median'] + 1.5 * df['standard dev']
 
 min_distance_ms = MIN_DISTANCE_MS
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
@@ -126,8 +126,8 @@ downsample_indices = np.arange(0, len(df), downsample_factor)
 
 plt.figure()
 plt.plot(df.index, df['ECG'], label='ECG')
-plt.plot(df.index[downsample_indices], df['moving_avg'].iloc[downsample_indices], 
-         label='Moving Average (10s)', color='orange')
+plt.plot(df.index[downsample_indices], df['moving_median'].iloc[downsample_indices], 
+         label='Moving Median (10s)', color='orange')
 plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
          label='Dynamic Threshold', color='green', linestyle='--')
 plt.plot(df.index[downsample_indices], df['standard dev'].iloc[downsample_indices], 
@@ -181,26 +181,22 @@ ax2.set_yscale('log')
 ax2.set_ylabel('HRV (s) - Log Scale', color='purple')
 ax2.tick_params(axis='y', labelcolor='purple')
 
-# Add HRV threshold line and highlight regions above 0.4s
+# Add HRV threshold line and highlight regions above 0.13s
 hrv_threshold = HRV_THRESHOLD
-ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.4s)')
+ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.13s)')
 
-# Highlight hours with excessive low HRV events in blue FIRST
+# Highlight hours with excessive low HRV events in blue
 for start_time, end_time in low_hrv_hours:
     ax1.axvspan(start_time, end_time, alpha=0.2, color='blue', 
                 label=f'Low HRV Hours (>{HRV_LOW_COUNT_THRESHOLD} drops <1e-5/hr)' if start_time == low_hrv_hours[0][0] else "")
 
-# Highlight regions where HRV > 0.4s in red SECOND (takes precedence)
+# Highlight regions where HRV > 0.13s in red
 high_hrv_mask = hrv > hrv_threshold
 if high_hrv_mask.any():
-    # Get the y-limits for the background highlighting
     y_min, y_max = ax1.get_ylim()
-    
-    # Find continuous regions where HRV > threshold
     high_hrv_regions = []
     in_region = False
     start_idx = None
-    
     for i, is_high in enumerate(high_hrv_mask):
         if is_high and not in_region:
             start_idx = i
