@@ -189,16 +189,16 @@ if PLOT_RR_LOG:
     ax2.set_ylabel('HRV (s) - Log Scale', color='purple')
     ax2.tick_params(axis='y', labelcolor='purple')
 
-    # Add HRV threshold line and highlight regions above 0.13s
+    # Add HRV threshold line and highlight regions above 0.12s
     hrv_threshold = HRV_THRESHOLD
-    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.13s)')
+    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.12s)')
 
     # Highlight hours with excessive low HRV events in blue
     for start_time, end_time in low_hrv_hours:
         ax1.axvspan(start_time, end_time, alpha=0.2, color='blue', 
                     label=f'Low HRV Hours (>{HRV_LOW_COUNT_THRESHOLD} drops <1e-5/hr)' if start_time == low_hrv_hours[0][0] else "")
 
-    # Highlight regions where HRV > 0.13s in red
+    # Highlight regions where HRV > 0.12s in red
     high_hrv_mask = hrv > hrv_threshold
     if high_hrv_mask.any():
         y_min, y_max = ax1.get_ylim()
