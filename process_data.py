@@ -1,3 +1,4 @@
+import math
 import pandas
 import numpy as np
 import matplotlib.pyplot as plt
@@ -8,16 +9,19 @@ PLOT_RR_LINEAR = False
 PLOT_RR_LOG = True
 
 # Constants
-WINDOW_SIZE = 2000
+WINDOW_SIZE = 5
 MIN_DISTANCE_MS = 100
-HRV_WINDOW_SIZE = 13
-HRV_THRESHOLD = 0.9
+HRV_WINDOW_SIZE = 20
+HRV_HIGH_THRESHOLD = 0.2
 HRV_LOW_THRESHOLD = 3e-3
 HRV_LOW_COUNT_THRESHOLD = 5
 HOUR_SECONDS = 3600
 NORMAL_HR_MIN = 60
 NORMAL_HR_MAX = 100
 DOWNSAMPLE_FACTOR = 10
+DYNAMIC_THRESHOLD_FACTOR = 2.5
+
+
 def load_data():
     df_preview = pandas.read_csv(
         'data.csv',
@@ -62,12 +66,12 @@ def load_healthy_data():
 
 df, sampling_rate = load_healthy_data()
 
-window_size = WINDOW_SIZE
+window_size = round(sampling_rate * WINDOW_SIZE)
 
 df['moving_median'] = df['ECG'].rolling(window=window_size, center=True).median()
 df['standard dev'] = df['ECG'].rolling(window=window_size, center=True).std()
 
-df['dynamic_threshold'] = df['moving_median'] + 1.5 * df['standard dev']
+df['dynamic_threshold'] = df['moving_median'] + DYNAMIC_THRESHOLD_FACTOR * df['standard dev']
 
 min_distance_ms = MIN_DISTANCE_MS
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
@@ -77,24 +81,16 @@ prev_peak = -min_distance_samples
 values = df['ECG'].values
 thresholds = df['dynamic_threshold'].values
 
-for i in range(1, len(values) - 1):
+check_offset = 1
+
+for i in range(check_offset, len(values) - check_offset):
     if (not np.isnan(thresholds[i]) and 
         values[i] > thresholds[i] and 
-        values[i] > values[i-1] and 
-        values[i] > values[i+1]):
+        values[i] >= values[i-check_offset] and 
+        values[i] >= values[i+check_offset]):
         if i - prev_peak >= min_distance_samples:
             r_peak_indices.append(i)
             prev_peak = i
-
-# Add R peaks at the beginning and end of the signal
-if r_peak_indices:
-    # Add peak at beginning if not already there
-    if r_peak_indices[0] > min_distance_samples:
-        r_peak_indices.insert(0, 0)
-    
-    # Add peak at end if not already there
-    if len(values) - 1 - r_peak_indices[-1] > min_distance_samples:
-        r_peak_indices.append(len(values) - 1)
 
 r_peak_times = df.index[r_peak_indices]
 
@@ -106,40 +102,6 @@ rr_interval_times = r_peak_times[1:]
 hrv_window_size = HRV_WINDOW_SIZE
 rr_series = pandas.Series(rr_intervals, index=rr_interval_times)
 hrv = rr_series.rolling(window=hrv_window_size, center=True).std()
-
-# Detect hours with excessive low HRV events
-def find_low_hrv_hours(hrv_series, low_threshold, count_threshold, hour_duration):
-    low_hrv_hours = []
-    if len(hrv_series) == 0:
-        return low_hrv_hours
-    
-    start_time = hrv_series.index[0]
-    end_time = hrv_series.index[-1]
-    
-    current_hour_start = start_time
-    while current_hour_start + hour_duration <= end_time:
-        current_hour_end = current_hour_start + hour_duration
-        
-        # Get HRV values in this hour window
-        hour_mask = (hrv_series.index >= current_hour_start) & (hrv_series.index < current_hour_end)
-        hour_hrv = hrv_series[hour_mask]
-        
-        # Count low HRV events in this hour
-        low_hrv_count = (hour_hrv < low_threshold).sum()
-        
-        if low_hrv_count > count_threshold:
-            low_hrv_hours.append((current_hour_start, current_hour_end))
-        
-        # Move to next hour (overlapping windows for better detection)
-        current_hour_start += hour_duration / 4  # 15-minute steps
-    
-    return low_hrv_hours
-
-low_hrv_hours = find_low_hrv_hours(hrv, HRV_LOW_THRESHOLD, HRV_LOW_COUNT_THRESHOLD, HOUR_SECONDS)
-
-#normally the variability drops to below 10^-5 1 time in 1000 seconds but when bad stuff is about to happen it can drop to 100 seconds
-#when bad stuff is happeneing the variability goes to 1 second to 10 sec
-#threshold for bad stuff currently happening should be around 0.4 seconds. if the hrv is greater than 0.4 seconds then it is bad currently
 
 downsample_factor = DOWNSAMPLE_FACTOR
 downsample_indices = np.arange(0, len(df), downsample_factor)
@@ -204,17 +166,36 @@ if PLOT_RR_LOG:
     ax2.set_ylabel('HRV (s) - Log Scale', color='purple')
     ax2.tick_params(axis='y', labelcolor='purple')
 
-    # Add HRV threshold line and highlight regions above 0.12s
-    hrv_threshold = HRV_THRESHOLD
-    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.12s)')
+    # Add HRV threshold line and highlight regions below 3e-3s
+    hrv_threshold = HRV_LOW_THRESHOLD
+    ax2.axhline(hrv_threshold, color='red', linestyle=':', alpha=0.8, label='HRV Threshold (3e-3s)')
 
-    # Highlight hours with excessive low HRV events in blue
-    for start_time, end_time in low_hrv_hours:
-        ax1.axvspan(start_time, end_time, alpha=0.2, color='blue', 
-                    label=f'Low HRV Hours (>{HRV_LOW_COUNT_THRESHOLD} drops <1e-5/hr)' if start_time == low_hrv_hours[0][0] else "")
+    low_hrv_mask = hrv < hrv_threshold
+    if low_hrv_mask.any():
+        y_min, y_max = ax1.get_ylim()
+        low_hrv_regions = []
+        in_region = False
+        start_idx = None
+        for i, is_low in enumerate(low_hrv_mask):
+            if is_low and not in_region:
+                start_idx = i
+                in_region = True
+            elif not is_low and in_region:
+                low_hrv_regions.append((hrv.index[start_idx], hrv.index[i-1]))
+                in_region = False
+        
+        # Handle case where last region extends to end
+        if in_region:
+            low_hrv_regions.append((hrv.index[start_idx], hrv.index[-1]))
+        
+        # Highlight each region
+        for start_time, end_time in low_hrv_regions:
+            ax1.axvspan(start_time, end_time, alpha=0.3, color='blue', label='Low HRV (<3e-3s)' if start_time == low_hrv_regions[0][0] else "")
 
     # Highlight regions where HRV > 0.12s in red
+    hrv_threshold = HRV_HIGH_THRESHOLD
     high_hrv_mask = hrv > hrv_threshold
+    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.2s)')
     if high_hrv_mask.any():
         y_min, y_max = ax1.get_ylim()
         high_hrv_regions = []
@@ -234,7 +215,7 @@ if PLOT_RR_LOG:
         
         # Highlight each region
         for start_time, end_time in high_hrv_regions:
-            ax1.axvspan(start_time, end_time, alpha=0.3, color='red', label='High HRV (>0.4s)' if start_time == high_hrv_regions[0][0] else "")
+            ax1.axvspan(start_time, end_time, alpha=0.3, color='red', label='High HRV (>0.2s)' if start_time == high_hrv_regions[0][0] else "")
 
     # Combine legends from both axes
     lines1, labels1 = ax1.get_legend_handles_labels()
