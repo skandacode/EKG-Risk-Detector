@@ -11,8 +11,8 @@ class StreamingECGAnalyzer:
                  min_distance_ms: int = 100,
                  hrv_window_size: int = 13,
                  window_size: int = 2000,
-                 hrv_threshold: float = 0.12,
-                 hrv_low_threshold: float = 1e-5,
+                 hrv_threshold: float = 0.9,
+                 hrv_low_threshold: float = 3e-3,
                  hrv_low_count_threshold: int = 5):
         
         # Configuration

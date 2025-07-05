@@ -11,41 +11,56 @@ PLOT_RR_LOG = True
 WINDOW_SIZE = 2000
 MIN_DISTANCE_MS = 100
 HRV_WINDOW_SIZE = 13
-HRV_THRESHOLD = 0.12
-HRV_LOW_THRESHOLD = 1e-5
+HRV_THRESHOLD = 0.9
+HRV_LOW_THRESHOLD = 3e-3
 HRV_LOW_COUNT_THRESHOLD = 5
 HOUR_SECONDS = 3600
 NORMAL_HR_MIN = 60
 NORMAL_HR_MAX = 100
 DOWNSAMPLE_FACTOR = 10
+def load_data():
+    df_preview = pandas.read_csv(
+        'data.csv',
+        quotechar='"',
+        skipinitialspace=True,
+        nrows=2
+    )
+    time0 = pandas.to_datetime(df_preview['TIME'].iloc[0])
+    time1 = pandas.to_datetime(df_preview['TIME'].iloc[1])
+    sampling_rate = 1 / (time1 - time0).total_seconds()
 
-df_preview = pandas.read_csv(
-    'data.csv',
-    quotechar='"',
-    skipinitialspace=True,
-    nrows=2
-)
-time0 = pandas.to_datetime(df_preview['TIME'].iloc[0])
-time1 = pandas.to_datetime(df_preview['TIME'].iloc[1])
-sampling_rate = 1 / (time1 - time0).total_seconds()
+    df = pandas.read_csv(
+        'data.csv',
+        quotechar='"',
+        skipinitialspace=True
+    )
 
-df = pandas.read_csv(
-    'data.csv',
-    quotechar='"',
-    skipinitialspace=True
-)
+    num_samples = len(df)
+    df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
+    df.set_index('SECONDS_SINCE_START', inplace=True)
 
-num_samples = len(df)
-df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
-df.set_index('SECONDS_SINCE_START', inplace=True)
+    print(df)
 
-print(df)
-
-print(f"sampling rate: {sampling_rate} hz")
+    print(f"sampling rate: {sampling_rate} hz")
 
 
-# Invert ECG
-df['ECG'] = -df['ECG']
+    # Invert ECG
+    df['ECG'] = -df['ECG']
+    return df, sampling_rate
+
+def load_healthy_data():
+    import test_with_db
+    ecg_signal, sampling_rate = test_with_db.load_data()
+    df = pandas.DataFrame({
+        'ECG': ecg_signal
+    })
+    df['SECONDS_SINCE_START'] = np.arange(len(df)) / sampling_rate
+    df.set_index('SECONDS_SINCE_START', inplace=True)
+    print(df)
+    print(f"sampling rate: {sampling_rate} hz")
+    return df, sampling_rate
+
+df, sampling_rate = load_healthy_data()
 
 window_size = WINDOW_SIZE
 
