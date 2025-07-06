@@ -64,7 +64,7 @@ def load_healthy_data():
     print(f"sampling rate: {sampling_rate} hz")
     return df, sampling_rate
 
-df, sampling_rate = load_healthy_data()
+df, sampling_rate = load_data()
 
 window_size = round(sampling_rate * WINDOW_SIZE)
 

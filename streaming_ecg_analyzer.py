@@ -9,11 +9,12 @@ class StreamingECGAnalyzer:
                  sampling_rate: float = 200.0,
                  buffer_size: int = 10000,
                  min_distance_ms: int = 100,
-                 hrv_window_size: int = 13,
-                 window_size: int = 2000,
-                 hrv_threshold: float = 0.9,
+                 hrv_window_size: int = 20,
+                 window_size: int = 5,
+                 hrv_threshold: float = 0.2,
                  hrv_low_threshold: float = 3e-3,
-                 hrv_low_count_threshold: int = 5):
+                 hrv_low_count_threshold: int = 5,
+                 threshold_factor: float = 2.5):
         
         # Configuration
         self.sampling_rate = sampling_rate
@@ -24,8 +25,9 @@ class StreamingECGAnalyzer:
         self.hrv_threshold = hrv_threshold
         self.hrv_low_threshold = hrv_low_threshold
         self.hrv_low_count_threshold = hrv_low_count_threshold
+        self.threshold_factor = threshold_factor
         
-        # Use NumPy arrays with circular buffer indices for better performance
+        # Use NumPy arrays with circular buffer indices
         self.ecg_buffer = np.zeros(buffer_size)
         self.time_buffer = np.zeros(buffer_size)
         self.buffer_index = 0
@@ -36,12 +38,12 @@ class StreamingECGAnalyzer:
         self.window_index = 0
         self.window_full = False
         
-        # R-peak detection - keep deques for variable-length data
+        # R-peak detection - deques for variable-length data
         self.r_peaks = deque(maxlen=1000)
         self.r_peak_times = deque(maxlen=1000)
         self.last_r_peak_sample = -self.min_distance_samples
         
-        # HRV analysis - use NumPy for better performance
+        # HRV analysis
         self.rr_intervals = np.zeros(999)
         self.rr_times = np.zeros(999)
         self.hrv_buffer = np.zeros(hrv_window_size)
@@ -63,7 +65,7 @@ class StreamingECGAnalyzer:
         self.streaming = False
 
     def add_sample(self, ecg_value: float, timestamp: float) -> None:
-        """Add a single ECG sample to the stream - optimized version."""
+        """Add a single ECG sample to the stream"""
         # Invert and store ECG value
         inverted_ecg = -ecg_value
         
@@ -87,7 +89,7 @@ class StreamingECGAnalyzer:
             self._check_alerts()
 
     def _update_rolling_stats_fast(self, new_value: float) -> None:
-        """Efficiently update rolling statistics using median instead of mean."""
+        """Efficiently update rolling statistics using median."""
         if not self.window_full and self.window_index < self.window_size:
             # Building up the window
             self.window_data[self.window_index] = new_value
@@ -107,14 +109,14 @@ class StreamingECGAnalyzer:
             current_window = self.window_data[:n] if not self.window_full else self.window_data
             self.current_moving_median = np.median(current_window)
             self.current_std = np.std(current_window)
-            self.current_threshold = self.current_moving_median + 1.5 * self.current_std
+            self.current_threshold = self.current_moving_median + self.threshold_factor * self.current_std
         else:
             self.current_moving_median = np.nan
             self.current_std = np.nan
             self.current_threshold = np.nan
 
     def _detect_r_peaks_fast(self) -> bool:
-        """Optimized R-peak detection."""
+        """R-peak detection."""
         if self.total_samples < 2:
             return False
         
@@ -134,8 +136,8 @@ class StreamingECGAnalyzer:
         
         # Check peak conditions
         is_peak = (curr_val > self.current_threshold and 
-                  curr_val > prev_val and 
-                  curr_val > next_val)
+                  curr_val >= prev_val and 
+                  curr_val >= next_val)
         
         # Check minimum distance
         if is_peak and (self.total_samples - self.last_r_peak_sample) >= self.min_distance_samples:
@@ -155,7 +157,7 @@ class StreamingECGAnalyzer:
         return False
 
     def _update_hrv_fast(self) -> None:
-        """Optimized HRV calculation using NumPy arrays."""
+        """HRV calculation using NumPy arrays."""
         if len(self.r_peak_times) < 2:
             return
         
@@ -201,7 +203,7 @@ class StreamingECGAnalyzer:
                 self.current_hrv_time = self.r_peak_times[-1]
 
     def _check_alerts(self) -> None:
-        """Optimized alert checking."""
+        """Alert checking."""
         if not hasattr(self, 'current_hrv') or not self.hrv_alert_callback:
             return
         
@@ -212,7 +214,7 @@ class StreamingECGAnalyzer:
             self.hrv_alert_callback("LOW_HRV", self.current_hrv_time, self.current_hrv)
 
     def get_current_stats(self) -> dict:
-        """Get current streaming statistics - optimized."""
+        """Get current streaming statistics"""
         stats = {
             'total_samples': self.total_samples,
             'buffer_usage': f"{min(self.total_samples, self.buffer_size)}/{self.buffer_size}",
@@ -235,7 +237,7 @@ class StreamingECGAnalyzer:
         return stats
 
     def get_recent_data(self, n_samples: int = 1000) -> dict:
-        """Get recent data for plotting - optimized."""
+        """Get recent data for plotting"""
         if self.total_samples == 0:
             return {'ecg': [], 'time': [], 'threshold': []}
         
@@ -285,17 +287,62 @@ def example_hrv_alert_callback(alert_type: str, timestamp: float, hrv_value: flo
     print(f"HRV Alert [{alert_type}] at {timestamp:.2f}s: HRV = {hrv_value:.6f}")
 
 
+def load_data():
+    """Load data from CSV file"""
+    df_preview = pd.read_csv(
+        'data.csv',
+        quotechar='"',
+        skipinitialspace=True,
+        nrows=2
+    )
+    time0 = pd.to_datetime(df_preview['TIME'].iloc[0])
+    time1 = pd.to_datetime(df_preview['TIME'].iloc[1])
+    sampling_rate = 1 / (time1 - time0).total_seconds()
+
+    df = pd.read_csv(
+        'data.csv',
+        quotechar='"',
+        skipinitialspace=True
+    )
+
+    num_samples = len(df)
+    df['SECONDS_SINCE_START'] = np.arange(num_samples) / sampling_rate
+    df.set_index('SECONDS_SINCE_START', inplace=True)
+
+    print(df)
+    print(f"sampling rate: {sampling_rate} hz")
+    
+    # Invert ECG
+    df['ECG'] = -df['ECG']
+    return df, sampling_rate
+
+def load_healthy_data():
+    """Load healthy data from database"""
+    import test_with_db
+    ecg_signal, sampling_rate = test_with_db.load_data()
+    df = pd.DataFrame({
+        'ECG': ecg_signal
+    })
+    df['SECONDS_SINCE_START'] = np.arange(len(df)) / sampling_rate
+    df.set_index('SECONDS_SINCE_START', inplace=True)
+    print(df)
+    print(f"sampling rate: {sampling_rate} hz")
+    return df, sampling_rate
+
+
 if __name__ == "__main__":
-    # Create analyzer
-    analyzer = StreamingECGAnalyzer()
+    # Load data - you can switch between datasets by changing this line
+    df, sampling_rate = load_data()  # Change to load_healthy_data() for healthy data
+    
+    # Create analyzer with the detected sampling rate
+    analyzer = StreamingECGAnalyzer(sampling_rate=sampling_rate)
     
     # Set up callbacks
     analyzer.set_callbacks(
         r_peak_callback=example_r_peak_callback,
         hrv_alert_callback=example_hrv_alert_callback
     )
-    #read data from a CSV file
-    df = pd.read_csv('data.csv')
-    for index, row in df.iterrows():
-        ecg_value = row[' "ECG"']
-        analyzer.add_sample(ecg_value, index / analyzer.sampling_rate)
+    
+    # Process data through the streaming analyzer
+    for timestamp, ecg_value in zip(df.index, df['ECG']):
+        analyzer.add_sample(ecg_value, timestamp)
