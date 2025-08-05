@@ -13,13 +13,14 @@ WINDOW_SIZE = 5
 MIN_DISTANCE_MS = 100
 HRV_WINDOW_SIZE = 20
 HRV_HIGH_THRESHOLD = 0.2
-HRV_LOW_THRESHOLD = 3e-3
+HRV_LOW_THRESHOLD = 7e-3
 HRV_LOW_COUNT_THRESHOLD = 5
 HOUR_SECONDS = 3600
 NORMAL_HR_MIN = 60
 NORMAL_HR_MAX = 100
 DOWNSAMPLE_FACTOR = 10
 DYNAMIC_THRESHOLD_FACTOR = 2.5
+HRV_WINDOW_SIZE_MEDIAN = 100
 
 
 def load_data():
@@ -105,6 +106,8 @@ hrv = rr_series.rolling(window=hrv_window_size, center=True).std()
 
 downsample_factor = DOWNSAMPLE_FACTOR
 downsample_indices = np.arange(0, len(df), downsample_factor)
+
+hrv = hrv.rolling(window=HRV_WINDOW_SIZE_MEDIAN, center=True).median()
 
 if PLOT_ECG_WITH_PEAKS:
     plt.figure()
