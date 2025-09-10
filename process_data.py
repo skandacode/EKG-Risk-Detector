@@ -2,17 +2,19 @@ import math
 import pandas
 import numpy as np
 import matplotlib.pyplot as plt
+import neurokit2 as nk
 
 # Plot control variables
 PLOT_ECG_WITH_PEAKS = True
 PLOT_RR_LINEAR = False
 PLOT_RR_LOG = True
+USE_NEUROKIT_RPEAK_DETECTION = True  # Set to True to use NeuroKit2's R-peak detection
 
 # Constants
 WINDOW_SIZE = 5
 MIN_DISTANCE_MS = 100
 HRV_WINDOW_SIZE = 20
-HRV_HIGH_THRESHOLD = 0.2
+HRV_HIGH_THRESHOLD = 0.1
 HRV_LOW_THRESHOLD = 7e-3
 HRV_LOW_COUNT_THRESHOLD = 5
 HOUR_SECONDS = 3600
@@ -77,23 +79,43 @@ df['dynamic_threshold'] = df['moving_median'] + DYNAMIC_THRESHOLD_FACTOR * df['s
 min_distance_ms = MIN_DISTANCE_MS
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
 
-r_peak_indices = []
-prev_peak = -min_distance_samples
-values = df['ECG'].values
-thresholds = df['dynamic_threshold'].values
+# R-peak detection - choose between custom implementation and NeuroKit2
+if USE_NEUROKIT_RPEAK_DETECTION:
+    # Use NeuroKit2's R-peak detection
+    print("Using NeuroKit2 R-peak detection...")
+    try:
+        # NeuroKit2 ecg_peaks returns a tuple (signals, info)
+        signals, info = nk.ecg_peaks(df['ECG'].values, sampling_rate=sampling_rate)
+        # Extract R-peak indices from the signals dictionary
+        r_peak_indices = np.where(signals['ECG_R_Peaks'] == 1)[0]
+        r_peak_times = df.index[r_peak_indices]
+        print(f"Found {len(r_peak_indices)} R-peaks with NeuroKit2")
+    except Exception as e:
+        print(f"NeuroKit2 R-peak detection failed: {e}")
+        print("Falling back to custom R-peak detection...")
+        USE_NEUROKIT_RPEAK_DETECTION = False
 
-check_offset = 1
+if not USE_NEUROKIT_RPEAK_DETECTION:
+    # Use custom R-peak detection
+    print("Using custom R-peak detection...")
+    r_peak_indices = []
+    prev_peak = -min_distance_samples
+    values = df['ECG'].values
+    thresholds = df['dynamic_threshold'].values
 
-for i in range(check_offset, len(values) - check_offset):
-    if (not np.isnan(thresholds[i]) and 
-        values[i] > thresholds[i] and 
-        values[i] >= values[i-check_offset] and 
-        values[i] >= values[i+check_offset]):
-        if i - prev_peak >= min_distance_samples:
-            r_peak_indices.append(i)
-            prev_peak = i
+    check_offset = 1
 
-r_peak_times = df.index[r_peak_indices]
+    for i in range(check_offset, len(values) - check_offset):
+        if (not np.isnan(thresholds[i]) and 
+            values[i] > thresholds[i] and 
+            values[i] >= values[i-check_offset] and 
+            values[i] >= values[i+check_offset]):
+            if i - prev_peak >= min_distance_samples:
+                r_peak_indices.append(i)
+                prev_peak = i
+
+    r_peak_times = df.index[r_peak_indices]
+    print(f"Found {len(r_peak_indices)} R-peaks with custom detection")
 
 rr_intervals = np.diff(r_peak_times)
 rr_interval_times = r_peak_times[1:]
@@ -112,12 +134,15 @@ hrv = hrv.rolling(window=HRV_WINDOW_SIZE_MEDIAN, center=True).median()
 if PLOT_ECG_WITH_PEAKS:
     plt.figure()
     plt.plot(df.index, df['ECG'], label='ECG')
-    plt.plot(df.index[downsample_indices], df['moving_median'].iloc[downsample_indices], 
-             label='Moving Median (10s)', color='orange')
-    plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
-             label='Dynamic Threshold', color='green', linestyle='--')
-    plt.plot(df.index[downsample_indices], df['standard dev'].iloc[downsample_indices], 
-             label='Standard Deviation', color='blue', linestyle='--')
+    
+    # Only plot threshold-related lines when using custom R-peak detection
+    if not USE_NEUROKIT_RPEAK_DETECTION:
+        plt.plot(df.index[downsample_indices], df['moving_median'].iloc[downsample_indices], 
+                 label='Moving Median (10s)', color='orange')
+        plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
+                 label='Dynamic Threshold', color='green', linestyle='--')
+        plt.plot(df.index[downsample_indices], df['standard dev'].iloc[downsample_indices], 
+                 label='Standard Deviation', color='blue', linestyle='--')
 
     plt.scatter(r_peak_times, df['ECG'].iloc[r_peak_indices],
                 color='red', label='R peaks')
