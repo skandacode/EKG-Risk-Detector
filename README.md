@@ -1,7 +1,3 @@
-# ECG Wave Delineation Visualizer
-
-This project visualizes ECG signals with automatic delineation of P, Q, R, S, and T waves using Python. It can process ECG records from PhysioNet or plot your own ECG data from a CSV file.
-
 ## Features
 - Plots RR intervals and provides summary statistics.
 - **Plots actual ECG data from CSV files with R peak detection and RR interval analysis.**
@@ -9,14 +5,10 @@ This project visualizes ECG signals with automatic delineation of P, Q, R, S, an
 ## Requirements
 
 - Python 3.7+
-- [matplotlib](https://pypi.org/project/matplotlib/)
-- [numpy](https://pypi.org/project/numpy/)
-- [pandas](https://pypi.org/project/pandas/)
-
 Install dependencies with:
 
 ```bash
-pip install matplotlib numpy pandas
+pip install -r requirements.txt
 ```
 
 ## Usage
@@ -51,13 +43,3 @@ TIME,ECG
 18:00:05.729,579.380798
 ...
 ```
-
-## Customization
-
-- To analyze a different record, change the `record_name` and `database` variables in `test.py`.
-- Adjust the R peak detection threshold or minimum distance in `plot_actual_data.py` as needed.
-- For plotting your own data, ensure your CSV file is formatted with `TIME` and `ECG` columns.
-
-## License
-
-This project is for educational purposes.
