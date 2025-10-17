@@ -1,14 +1,13 @@
-import math
 import pandas
 import numpy as np
 import matplotlib.pyplot as plt
 import neurokit2 as nk
 
-# Plot control variables
 PLOT_ECG_WITH_PEAKS = True
 PLOT_RR_LINEAR = False
 PLOT_RR_LOG = True
-USE_NEUROKIT_RPEAK_DETECTION = True  # Set to True to use NeuroKit2's R-peak detection
+USE_NEUROKIT_RPEAK_DETECTION = True
+USE_UNHEALTHY_DATA = False
 
 # Constants
 WINDOW_SIZE = 5
@@ -67,7 +66,10 @@ def load_healthy_data():
     print(f"sampling rate: {sampling_rate} hz")
     return df, sampling_rate
 
-df, sampling_rate = load_healthy_data()
+if USE_UNHEALTHY_DATA:
+    df, sampling_rate = load_data()
+else:
+    df, sampling_rate = load_healthy_data()
 
 window_size = round(sampling_rate * WINDOW_SIZE)
 
@@ -79,14 +81,11 @@ df['dynamic_threshold'] = df['moving_median'] + DYNAMIC_THRESHOLD_FACTOR * df['s
 min_distance_ms = MIN_DISTANCE_MS
 min_distance_samples = int(min_distance_ms * sampling_rate / 1000)
 
-# R-peak detection - choose between custom implementation and NeuroKit2
+
 if USE_NEUROKIT_RPEAK_DETECTION:
-    # Use NeuroKit2's R-peak detection
     print("Using NeuroKit2 R-peak detection...")
     try:
-        # NeuroKit2 ecg_peaks returns a tuple (signals, info)
         signals, info = nk.ecg_peaks(df['ECG'].values, sampling_rate=sampling_rate)
-        # Extract R-peak indices from the signals dictionary
         r_peak_indices = np.where(signals['ECG_R_Peaks'] == 1)[0]
         r_peak_times = df.index[r_peak_indices]
         print(f"Found {len(r_peak_indices)} R-peaks with NeuroKit2")
@@ -96,7 +95,6 @@ if USE_NEUROKIT_RPEAK_DETECTION:
         USE_NEUROKIT_RPEAK_DETECTION = False
 
 if not USE_NEUROKIT_RPEAK_DETECTION:
-    # Use custom R-peak detection
     print("Using custom R-peak detection...")
     r_peak_indices = []
     prev_peak = -min_distance_samples
@@ -121,7 +119,6 @@ rr_intervals = np.diff(r_peak_times)
 rr_interval_times = r_peak_times[1:]
 
 
-# Calculate HRV using rolling standard deviation
 hrv_window_size = HRV_WINDOW_SIZE
 rr_series = pandas.Series(rr_intervals, index=rr_interval_times)
 hrv = rr_series.rolling(window=hrv_window_size, center=True).std()
@@ -135,10 +132,9 @@ if PLOT_ECG_WITH_PEAKS:
     plt.figure()
     plt.plot(df.index, df['ECG'], label='ECG')
     
-    # Only plot threshold-related lines when using custom R-peak detection
     if not USE_NEUROKIT_RPEAK_DETECTION:
         plt.plot(df.index[downsample_indices], df['moving_median'].iloc[downsample_indices], 
-                 label='Moving Median (10s)', color='orange')
+                 label=f'Moving Median ({HRV_WINDOW_SIZE_MEDIAN}s)', color='orange')
         plt.plot(df.index[downsample_indices], df['dynamic_threshold'].iloc[downsample_indices], 
                  label='Dynamic Threshold', color='green', linestyle='--')
         plt.plot(df.index[downsample_indices], df['standard dev'].iloc[downsample_indices], 
@@ -157,14 +153,12 @@ if PLOT_RR_LINEAR:
     plt.figure()
     plt.plot(rr_interval_times, rr_intervals, label='RR interval')
 
-    # Add HRV to linear scale plot
     ax1 = plt.gca()
     ax2 = ax1.twinx()
-    ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label='HRV (30)', alpha=0.8)
+    ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label=f'HRV ({HRV_WINDOW_SIZE})', alpha=0.8)
     ax2.set_ylabel('HRV (s)', color='purple')
     ax2.tick_params(axis='y', labelcolor='purple')
 
-    # Combine legends
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
@@ -186,17 +180,15 @@ if PLOT_RR_LOG:
     plt.axhline(rr_max_normal, color='green', linestyle='--', alpha=0.7, label='60 bpm (1.0s)')
     plt.axhline(rr_min_normal, color='red', linestyle='--', alpha=0.7, label='100 bpm (0.6s)')
 
-    # Create secondary y-axis for HRV
     ax1 = plt.gca()
     ax2 = ax1.twinx()
-    ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label='HRV (30) Log Scale', alpha=0.8)
+    ax2.plot(hrv.index, hrv.values, color='purple', linewidth=2, label=f'HRV ({HRV_WINDOW_SIZE}) Log Scale', alpha=0.8)
     ax2.set_yscale('log')
     ax2.set_ylabel('HRV (s) - Log Scale', color='purple')
     ax2.tick_params(axis='y', labelcolor='purple')
 
-    # Add HRV threshold line and highlight regions below 3e-3s
     hrv_threshold = HRV_LOW_THRESHOLD
-    ax2.axhline(hrv_threshold, color='red', linestyle=':', alpha=0.8, label='HRV Threshold (3e-3s)')
+    ax2.axhline(hrv_threshold, color='red', linestyle=':', alpha=0.8, label=f'HRV Threshold ({HRV_LOW_THRESHOLD}s)')
 
     low_hrv_mask = hrv < hrv_threshold
     if low_hrv_mask.any():
@@ -212,18 +204,15 @@ if PLOT_RR_LOG:
                 low_hrv_regions.append((hrv.index[start_idx], hrv.index[i-1]))
                 in_region = False
         
-        # Handle case where last region extends to end
         if in_region:
             low_hrv_regions.append((hrv.index[start_idx], hrv.index[-1]))
         
-        # Highlight each region
         for start_time, end_time in low_hrv_regions:
-            ax1.axvspan(start_time, end_time, alpha=0.3, color='blue', label='Low HRV (<3e-3s)' if start_time == low_hrv_regions[0][0] else "")
+            ax1.axvspan(start_time, end_time, alpha=0.3, color='blue', label=f'Low HRV (<{HRV_LOW_THRESHOLD}s)' if start_time == low_hrv_regions[0][0] else "")
 
-    # Highlight regions where HRV > 0.12s in red
     hrv_threshold = HRV_HIGH_THRESHOLD
     high_hrv_mask = hrv > hrv_threshold
-    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label='HRV Threshold (0.2s)')
+    ax2.axhline(hrv_threshold, color='orange', linestyle=':', alpha=0.8, label=f'HRV Threshold ({HRV_HIGH_THRESHOLD}s)')
     if high_hrv_mask.any():
         y_min, y_max = ax1.get_ylim()
         high_hrv_regions = []
@@ -237,15 +226,13 @@ if PLOT_RR_LOG:
                 high_hrv_regions.append((hrv.index[start_idx], hrv.index[i-1]))
                 in_region = False
         
-        # Handle case where last region extends to end
         if in_region:
             high_hrv_regions.append((hrv.index[start_idx], hrv.index[-1]))
         
-        # Highlight each region
         for start_time, end_time in high_hrv_regions:
-            ax1.axvspan(start_time, end_time, alpha=0.3, color='red', label='High HRV (>0.2s)' if start_time == high_hrv_regions[0][0] else "")
+            ax1.axvspan(start_time, end_time, alpha=0.3, color='red', label=f'High HRV (>{HRV_HIGH_THRESHOLD}s)' if start_time == high_hrv_regions[0][0] else "")
 
-    # Combine legends from both axes
+
     lines1, labels1 = ax1.get_legend_handles_labels()
     lines2, labels2 = ax2.get_legend_handles_labels()
     ax1.legend(lines1 + lines2, labels1 + labels2, loc='upper right')
