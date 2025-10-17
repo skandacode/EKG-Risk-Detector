@@ -1,10 +1,5 @@
-import numpy as np
-import matplotlib.pyplot as plt
 import wfdb
-import neurokit2 as nk
 import os
-from matplotlib.collections import LineCollection
-from matplotlib.colors import ListedColormap
 
 
 record_name = 'slp01a'
@@ -14,10 +9,10 @@ def load_data():
     os.makedirs(local_data_dir, exist_ok=True)
     local_record_path = os.path.join(local_data_dir, record_name)
     if os.path.exists(f"{local_record_path}.dat") and os.path.exists(f"{local_record_path}.hea"):
-        print(f"Loading {record_name} from local storage...")
+        print(f"Loading {record_name}...")
         record = wfdb.rdrecord(local_record_path)
     else:
-        print(f"Downloading {record_name} from PhysioNet...")
+        print(f"Downloading {record_name}...")
         record = wfdb.rdrecord(record_name, pn_dir=database)
         wfdb.wrsamp(record_name, fs=record.fs, units=record.units, sig_name=record.sig_name, 
                     p_signal=record.p_signal, fmt=record.fmt, write_dir=local_data_dir)
